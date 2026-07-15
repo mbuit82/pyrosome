@@ -46,14 +46,14 @@ Local Notation preserving_compiler_ext tgt cmp_pre cmp src := (* copied from Par
 Definition func_partial_eval_ctx' :=
   Eval vm_compute in Rule.get_ctx (named_list_lookup default target_multilanguage "typerec func").
 
-Definition comp_t1_type := {{s #"exp" "D" "G" (#"ty_subst" "D" (#"ty_ext" "D") (#"ty_snoc" "D" "D" (#"ty_id" "D") "t1") "sigma") }}.
+Definition t1_recursion_type := {{s #"exp" "D" "G" (#"ty_subst" "D" (#"ty_ext" "D") (#"ty_snoc" "D" "D" (#"ty_id" "D") "t1") "sigma") }}.
 
-Definition comp_t2_type := {{s #"exp" "D" "G" (#"ty_subst" "D" (#"ty_ext" "D") (#"ty_snoc" "D" "D" (#"ty_id" "D") "t2") "sigma") }}.
+Definition t2_recursion_type := {{s #"exp" "D" "G" (#"ty_subst" "D" (#"ty_ext" "D") (#"ty_snoc" "D" "D" (#"ty_id" "D") "t2") "sigma") }}.
 
-Definition func_partial_eval_ctx := Eval vm_compute in [("comp_t2", comp_t2_type); ("comp_t1", comp_t1_type); ("e3", named_list_lookup default func_partial_eval_ctx' "e3"); ("t2", named_list_lookup default func_partial_eval_ctx' "t2"); ("t1", named_list_lookup default func_partial_eval_ctx' "t1"); ("sigma", named_list_lookup default func_partial_eval_ctx' "sigma"); ("G", named_list_lookup default func_partial_eval_ctx' "G"); ("D", named_list_lookup default func_partial_eval_ctx' "D")]. 
+Definition func_partial_eval_ctx := Eval vm_compute in [("t2_recursion", t2_recursion_type); ("t1_recursion", t1_recursion_type); ("e3", named_list_lookup default func_partial_eval_ctx' "e3"); ("t2", named_list_lookup default func_partial_eval_ctx' "t2"); ("t1", named_list_lookup default func_partial_eval_ctx' "t1"); ("sigma", named_list_lookup default func_partial_eval_ctx' "sigma"); ("G", named_list_lookup default func_partial_eval_ctx' "G"); ("D", named_list_lookup default func_partial_eval_ctx' "D")]. 
 
 Definition func_partial_eval_term_def := (* comp_t1 ie computation of type t1. cf substitution in meta_typerec *)
-  {{e #"app" (#"@" (#"app" (#"@" "e3" "t1") "comp_t1") "t2") "comp_t2" }}.
+  {{e #"app" (#"@" (#"app" (#"@" "e3" "t1") "t1_recursion") "t2") "t2_recursion" }}.
 
 Derive func_partial_eval_term
   in ( elab_term target_multilanguage
@@ -71,9 +71,9 @@ Fixpoint meta_typerec (D G mu sigma e1 e2 e3 : term) : term :=
   | {{e #"->" {_} {t1} {t2} }} =>
       func_partial_eval_term [/ [ ("e3", e3);
                                   ("t1", t1);
-                                  ("comp_t1", meta_typerec D G t1 sigma e1 e2 e3);
+                                  ("t1_recursion", meta_typerec D G t1 sigma e1 e2 e3);
                                   ("t2", t2);
-                                  ("comp_t2", meta_typerec D G t2 sigma e1 e2 e3);
+                                  ("t2_recursion", meta_typerec D G t2 sigma e1 e2 e3);
                                   ("G", G);
                                   ("D", D) ] /]
   | _ => mu
@@ -104,12 +104,12 @@ Fixpoint all_typerecs_simple (program : term) : Prop :=
   end.
 
 Ltac invert_wf_args :=
-        match goal with
-        | H : ComputeWf.wf_args _ _ _ _ |- _ => inversion H; clear H
-        end.
+  match goal with
+  | H : ComputeWf.wf_args _ _ _ _ |- _ => inversion H; clear H
+  end.
 
 Lemma no_sort_eqns_in_sml : Is_true (no_sort_eqns source_multilanguage).
-Proof. apply I. Qed.
+Proof. apply I. Qed. 
 
 Lemma source_multilanguage_wf : wf_lang source_multilanguage.
 Proof. prove_by_lang_db. Qed.
@@ -157,11 +157,9 @@ Qed.
 Lemma ty_inversion_lemma : forall (e : term),
     Core.wf_term source_multilanguage [] e {{s #"ty" }} -> e = {{e #"*" }}  \/ e = {{e #"bool" }} \/ (exists a b, Core.wf_term source_multilanguage [] a {{s #"ty" }} /\ Core.wf_term source_multilanguage [] b {{s #"ty" }} /\ e = {{e #"->" {a} {b} }} ).
 Proof.
-  intros. eapply ty_inversion_lemma'.
-  - assert (Core.wf_sort source_multilanguage {{c }} {{s #"ty" }});
-      [ pose proof source_multilanguage_wf; compute_sort_wf | apply H0 ]. 
-  - apply H.
-  - reflexivity.
+  intros. eapply ty_inversion_lemma'; eauto.
+  assert (Core.wf_sort source_multilanguage {{c }} {{s #"ty" }});
+    [ pose proof source_multilanguage_wf; compute_sort_wf | apply H0 ]. 
 Qed.
 
 Lemma compiled_types_are_simple :
@@ -190,7 +188,7 @@ Qed.
 
 Ltac compute_match t :=
   let v := eval vm_compute in t in
-    change_no_check t with v.
+    replace t with v by (vm_compute; reflexivity).
 
 Theorem can_eliminate_typerec :
   forall (t: sort) (e : term),
@@ -216,7 +214,8 @@ Lemma target_multilanguage_wf : wf_lang target_multilanguage.
 Proof. prove_by_lang_db. Qed.
 
 Lemma no_sort_eqns_in_tml : Is_true (no_sort_eqns target_multilanguage).
-Proof. apply I. Qed.
+Proof. apply I. Qed. 
+Check sort_names_equal.
 
 Lemma ty_env_eq_sort_lemma_tml : forall (t : sort), Core.wf_sort target_multilanguage [] t -> eq_sort target_multilanguage [] t {{s #"ty_env"}} <-> t = {{s #"ty_env" }}.
 Proof.
@@ -233,9 +232,11 @@ Proof.
       destruct H0.
 Qed.
 
+(*
 Lemma ty_inversion_lemma_tml : forall (e ty_env : term),    
     Core.wf_term target_multilanguage [] e {{s #"ty" {ty_env} }} -> e = {{e #"*" {ty_env} }}  \/ e = {{e #"bool" {ty_env} }} \/ (exists a b, Core.wf_term source_multilanguage [] a {{s #"ty" {ty_env} }} /\ Core.wf_term source_multilanguage [] b {{s #"ty" {ty_env} }} /\ e = {{e #"->" {ty_env} {a} {b} }} ).
 Proof. Admitted. (* STATEMENT IS NOT RIGHT!! product types and All types *)
+*)
 
 (* 
 (* OLD. Doesn't work for typerec because we don't have the inversion lemma and we have stuck terms with typerec *)
@@ -338,6 +339,15 @@ Ltac first_pass :=
 
 Ltac solve_eq_goal :=
   with_strategy opaque [compile simple_multilang_compiler interoperating_langs_compiler] first_pass; with_strategy transparent [compile simple_multilang_compiler interoperating_langs_compiler] simpl; repeat sv.
+(* 
+Lemma asdf : forall (e : term) (t : sort),
+    Core.wf_term source_multilanguage [] e t ->
+    t = {{s #"env" }} ->
+    (compile (simple_multilang_compiler ++ interoperating_langs_compiler) e) =
+      {{e {e} (#"ty_emp") }}. 
+      *)
+
+
 
 Lemma eq_sort_sml_implies_eq_sort_tml :
   forall (t t' : sort),
@@ -345,12 +355,43 @@ Lemma eq_sort_sml_implies_eq_sort_tml :
     eq_sort target_multilanguage []
       (compile_sort (simple_multilang_compiler ++ interoperating_langs_compiler) t)
       (compile_sort (simple_multilang_compiler ++ interoperating_langs_compiler) t').
-Proof. Admitted. 
-
-(* Restore the old behavior because the new one broke this proof*)
-Ltac compute_match t ::=
-   let v := eval vm_compute in t in
-     replace t with v by (vm_compute; reflexivity).
+Proof.
+  intros t t'. inversion 1.
+  - destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0. 1: inversion H0. destruct H0. 1: inversion H0. destruct H0. 1: inversion H0.
+    destruct H0.
+  - admit.
+  - apply eq_sort_refl. inversion H0. (* solvable *) admit.
+  - admit.
+  - admit. 
+Admitted.
 
 Theorem partial_eval_preserves_equality :
 forall (t: sort) (e : term),
@@ -367,11 +408,128 @@ Proof.
                       [> first [ solve [ injection H; intros HF; inversion HF ]
                                | shelve ]
                       | .. ]); destruct H).
+    + injection H; intros H6 H5 H4 H3; rewrite <- H4 in H1. rewrite <- H4 in H0. cbn [compile].
+      repeat invert_wf_args. compute_match (named_list_lookup_err (simple_multilang_compiler ++ interoperating_langs_compiler) name); rewrite <- H3. subst; destruct H1; repeat destruct H0. cbn [map combine_r_padded].
+      simpl in H19; simpl in H14; simpl in H9.
+      apply ty_inversion_lemma in H14; try reflexivity; destruct H14 as [ HStar | [ HBool | HArrow ] ].
+      * rewrite HStar.
+        with_strategy opaque [elim_typerec compile simple_multilang_compiler interoperating_langs_compiler] do_substitutions.
+        collapse_match.
+        with_strategy opaque [elim_typerec compile simple_multilang_compiler interoperating_langs_compiler] do_substitutions.
+        rewrite HStar in *. 
+        replace (compile (simple_multilang_compiler ++ interoperating_langs_compiler) {{e #"*"}}) with {{e #"*" #"ty_emp" }} in *  by (vm_compute; reflexivity).
+        repeat cbn [map elim_typerec].
+        with_strategy opaque [compile simple_multilang_compiler interoperating_langs_compiler]
+          (simpl in *; collapse_match_in_hyps; simpl in *; cbv [term_subst_lookup named_list_lookup] in *; simpl in *; repeat sv).
+        Unshelve. 
+      * rewrite HBool.
+        with_strategy opaque [elim_typerec compile simple_multilang_compiler interoperating_langs_compiler] do_substitutions.
+        collapse_match.
+        with_strategy opaque [elim_typerec compile simple_multilang_compiler interoperating_langs_compiler] do_substitutions.
+        rewrite HBool in *. 
+        replace (compile (simple_multilang_compiler ++ interoperating_langs_compiler) {{e #"bool"}}) with {{e #"bool" #"ty_emp" }} in *  by (vm_compute; reflexivity).
+        repeat cbn [map elim_typerec].
+        Opaque compile. Opaque simple_multilang_compiler. Opaque interoperating_langs_compiler.
+        simpl in *; collapse_match_in_hyps; simpl in *; cbv [term_subst_lookup named_list_lookup] in *; simpl in *. sv. 1-3: repeat sv. 2: sv.
+        2: replace (compile (simple_multilang_compiler ++ interoperating_langs_compiler) {{e #"*"}}) with {{e #"*" #"ty_emp" }} by (vm_compute; reflexivity).
+        2: repeat sv.
+        repeat sv.
+        Transparent compile. Transparent simple_multilang_compiler. Transparent interoperating_langs_compiler.
+      * destruct HArrow as [ A [ B [ WfA [ WfB EAB ]]]].
+        with_strategy opaque [elim_typerec compile simple_multilang_compiler interoperating_langs_compiler] do_substitutions.
+        collapse_match.
+        with_strategy opaque [elim_typerec compile simple_multilang_compiler interoperating_langs_compiler] do_substitutions.
+        rewrite EAB in *.
+        repeat cbn [map elim_typerec].
+        Opaque compile. Opaque simple_multilang_compiler. Opaque interoperating_langs_compiler.
+        simpl in *; collapse_match_in_hyps; simpl in *; cbv [term_subst_lookup named_list_lookup] in *; simpl in *.
+        sv.
+        1-3: repeat sv.
+        2: sv. 2: sv. 2: sv. 2: replace (compile (simple_multilang_compiler ++ interoperating_langs_compiler) {{e #"*"}}) with {{e #"*" #"ty_emp" }} by (vm_compute; reflexivity). 2: sv. 2: sv.
+        sv.
+        1-3: repeat sv.
+        sv. 
+    + admit.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+    + setup_eq_goal H H0 H1 name; solve_eq_goal.
+  - inversion H.
+  - apply eq_sort_sml_implies_eq_sort_tml in H0. sv.
+    Unshelve.
+    + Require Import Ltac2.Ltac2 Ltac2.Bool Ltac.
+      Ltac2 Set do_check_computations := true.
+      Print eredex_steps_with.
+      reduce_lhs. 
+      eredex_steps_with target_multilanguage "typerec func". 
+      Print eredex_steps_with. 
+      Automation.by_reduction. 
+    
+    all:  setup_eq_goal H H0 H1 name; solve_eq_goal. 
+        replace (compile (simple_multilang_compiler ++ interoperating_langs_compiler) {{e #"->" {A} {B} }}) with {{e #"->" #"ty_emp" {compile (simple_multilang_compiler ++ interoperating_langs_compiler) A} {compile (simple_multilang_compiler ++ interoperating_langs_compiler) B} }} in *.  by (vm_compute; reflexivity).
+        
+        
+        
+
+
+
+      [ rewrite HStar; replace (compile (simple_multilang_compiler ++ interoperating_langs_compiler) {{e #"*"}}) with {{e #"*" #"ty_emp" }} by (vm_compute; reflexivity); cbn -[compile simple_multilang_compiler interoperating_langs_compiler]; repeat apply conj; apply I || assumption
+        | rewrite HBool; replace (compile (simple_multilang_compiler ++ interoperating_langs_compiler) {{e #"bool"}}) with {{e #"bool" #"ty_emp" }} by (vm_compute; reflexivity); cbn -[compile simple_multilang_compiler interoperating_langs_compiler]; repeat apply conj; apply I || assumption
+        | destruct HArrow as [ A [ B [ WfA [ WfB EAB ]]]]; cbn -[compile simple_multilang_compiler interoperating_langs_compiler]; apply compiled_types_are_simple in WfA; try reflexivity; apply compiled_types_are_simple in WfB; try reflexivity; repeat apply conj; try (apply I || assumption || rewrite EAB; apply conj; assumption) ].
+      simpl in H14; apply ty_inversion_lemma in H14; try reflexivity;
+    destruct H14 as [ HStar | [ HBool | HArrow ]];
+
+      injection H; intros Hsort Hargs H4 Hname; rewrite <- H4 in H0.
+      repeat invert_wf_args. subst. destruct H1; repeat destruct H0.
+      simpl in H11. simpl in H6. simpl in H16.
+      apply ty_inversion_lemma in H11. destruct H11 as [ HStar | [ HBool | HArrow ] ].
+      * subst. Opaque compile. Opaque simple_multilang_compiler. Opaque interoperating_langs_compiler. do_substitutions. collapse_match.
+        do_substitutions.
+        replace (compile (simple_multilang_compiler ++ interoperating_langs_compiler) {{e #"*"}}) with {{e #"*" #"ty_emp"}} by (with_strategy transparent [compile simple_multilang_compiler interoperating_langs_compiler] vm_compute; reflexivity).
+        Eval vm_compute in (compile (simple_multilang_compiler ++ interoperating_langs_compiler) {{e #"dtt" {e1} #"*" {e} }}). 
+        
+        Opaque compile. Opaque simple_multilang_compiler. Opaque interoperating_langs_compiler.
+        
+        
+        -- admit.
+        -- 
+        
+        
+      Search (eq_term _ _ _ _). 
     1-2: admit.
-    all: setup_eq_goal H H0 H1 name; solve_eq_goal.
+    
   - inversion H.
   - apply eq_sort_sml_implies_eq_sort_tml in H0. sv. 
 Admitted.
+
+
+injection H; intros Hsort Hargs H4 Hname; rewrite <- H4 in H0; cbn [compile]; 
+      compute_match (named_list_lookup_err (simple_multilang_compiler ++ interoperating_langs_compiler) name); rewrite <- Hname;
+      repeat invert_wf_args; subst; destruct H1; repeat destruct H0;
+  remove_compile_sorts; cbv [map combine_r_padded].
+
 
 Definition target_multilanguage_without_typerec :=
   prod_ty_subst ++ prod_parameterized ++ (* can we also get rid of these? idt we partially evaluate that away but I think we could *)
